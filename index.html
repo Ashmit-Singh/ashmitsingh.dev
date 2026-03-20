@@ -636,6 +636,10 @@ footer{padding:2.5rem 3rem;border-top:1px solid var(--dim2);display:flex;justify
 #music-btn .music-icon span:nth-child(3){height:12px}
 #music-btn .music-icon span:nth-child(4){height:6px}
 @keyframes bar{0%,100%{transform:scaleY(.3)}50%{transform:scaleY(1)}}
+#site.scroll-active{will-change:transform}
+.proj-name{cursor:none;transition:color .2s}
+.nav-links a{display:inline-block}
+.cta-link{display:inline-block}
 </style>
 
 <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
@@ -963,6 +967,193 @@ document.querySelectorAll('.mob-proj-card').forEach(el=>{el.addEventListener('to
   });
 })();
 // ── END SYNTH ──────────────────────────────────────────────────────────────
+
+// ── 1. TEXT SCRAMBLE ───────────────────────────────────────────────────────
+(function(){
+  const CHARS='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*[]{}|<>λ∇∅◆■░';
+  function scramble(el){
+    const original=el.dataset.original||(el.dataset.original=el.textContent);
+    let frame=0;
+    const totalFrames=18;
+    if(el._scramTimer)clearInterval(el._scramTimer);
+    el._scramTimer=setInterval(()=>{
+      frame++;
+      const progress=frame/totalFrames;
+      el.textContent=original.split('').map((ch,i)=>{
+        if(ch===' ')return ' ';
+        if(i/original.length<progress)return ch;
+        return CHARS[Math.floor(Math.random()*CHARS.length)];
+      }).join('');
+      if(frame>=totalFrames){
+        clearInterval(el._scramTimer);
+        el.textContent=original;
+      }
+    },32);
+  }
+  function attachScramble(selector){
+    document.querySelectorAll(selector).forEach(el=>{
+      el.addEventListener('mouseenter',()=>scramble(el));
+    });
+  }
+  // Apply to nav links, project names, section titles, cta links
+  attachScramble('.nav-links a');
+  attachScramble('.proj-name');
+  attachScramble('.sec-title');
+  attachScramble('.cta-link');
+  attachScramble('.exp-title');
+  attachScramble('.principle-title');
+  attachScramble('.contact-eyebrow');
+})();
+// ── END SCRAMBLE ────────────────────────────────────────────────────────────
+
+// ── 2. MAGNETIC BUTTONS ─────────────────────────────────────────────────────
+(function(){
+  const STRENGTH=0.38;
+  const RADIUS=90;
+  function attachMagnetic(selector){
+    document.querySelectorAll(selector).forEach(el=>{
+      let ox=0,oy=0,rafId=null;
+      function lerp(a,b,t){return a+(b-a)*t;}
+      function onMove(e){
+        const r=el.getBoundingClientRect();
+        const cx=r.left+r.width/2,cy=r.top+r.height/2;
+        const dx=e.clientX-cx,dy=e.clientY-cy;
+        const dist=Math.sqrt(dx*dx+dy*dy);
+        if(dist<RADIUS){
+          const tx=dx*STRENGTH,ty=dy*STRENGTH;
+          ox=lerp(ox,tx,0.14);oy=lerp(oy,ty,0.14);
+          el.style.transform=`translate(${ox}px,${oy}px)`;
+          el.style.transition='none';
+        }
+      }
+      function onLeave(){
+        cancelAnimationFrame(rafId);
+        el.style.transition='transform 0.5s cubic-bezier(0.16,1,0.3,1)';
+        el.style.transform='translate(0,0)';
+        ox=0;oy=0;
+      }
+      el.addEventListener('mousemove',onMove);
+      el.addEventListener('mouseleave',onLeave);
+    });
+  }
+  attachMagnetic('#enter-btn');
+  attachMagnetic('.cta-link');
+  attachMagnetic('#skip-btn');
+  attachMagnetic('#music-btn');
+  attachMagnetic('.mob-cta-link');
+})();
+// ── END MAGNETIC ─────────────────────────────────────────────────────────────
+
+// ── 3. CURSOR TRAIL ──────────────────────────────────────────────────────────
+(function(){
+  if(navigator.maxTouchPoints>1||window.innerWidth<768)return;
+  const TRAIL_COUNT=7;
+  const trail=[];
+  for(let i=0;i<TRAIL_COUNT;i++){
+    const dot=document.createElement('div');
+    const size=Math.round(28*(1-i/TRAIL_COUNT));
+    const opacity=(1-i/TRAIL_COUNT)*0.18;
+    dot.style.cssText=`position:fixed;pointer-events:none;z-index:9998;
+      width:${size}px;height:${size}px;border-radius:50%;
+      border:1px solid rgba(200,255,0,${opacity});
+      transform:translate(-50%,-50%);transition:none;`;
+    document.body.appendChild(dot);
+    trail.push({el:dot,x:0,y:0});
+  }
+  let mx=0,my=0;
+  document.addEventListener('mousemove',e=>{mx=e.clientX;my=e.clientY;});
+  (function animTrail(){
+    requestAnimationFrame(animTrail);
+    let px=mx,py=my;
+    trail.forEach((t,i)=>{
+      const lag=0.12+i*0.04;
+      t.x+=(px-t.x)*lag;
+      t.y+=(py-t.y)*lag;
+      t.el.style.left=t.x+'px';
+      t.el.style.top=t.y+'px';
+      px=t.x;py=t.y;
+    });
+  })();
+})();
+// ── END TRAIL ────────────────────────────────────────────────────────────────
+
+// ── 4. SMOOTH INERTIA SCROLL ─────────────────────────────────────────────────
+(function(){
+  if(navigator.maxTouchPoints>1||window.innerWidth<768)return;
+  // Only activate after site is entered — loader uses native scroll
+  let active=false;
+  let current=0,target=0,rafId=null;
+  const LERP=0.092;
+  function lerp(a,b,t){return a+(b-a)*t;}
+  function tick(){
+    rafId=requestAnimationFrame(tick);
+    current=lerp(current,target,LERP);
+    if(Math.abs(current-target)<0.08)current=target;
+    document.documentElement.style.setProperty('--scroll-y',current+'px');
+    // Apply transform to site content wrapper only
+    const site=document.getElementById('site');
+    if(site)site.style.transform=`translateY(${-current}px)`;
+    // Keep fixed elements (nav, cursor, music btn, skip btn, overlays)
+    // unaffected — they use position:fixed so they're immune
+  }
+  function onWheel(e){
+    if(!active)return;
+    e.preventDefault();
+    target+=e.deltaY*0.8;
+    const maxScroll=document.body.scrollHeight-window.innerHeight;
+    target=Math.max(0,Math.min(target,maxScroll));
+  }
+  function onKey(e){
+    if(!active)return;
+    const step=80;
+    const maxScroll=document.body.scrollHeight-window.innerHeight;
+    if(e.key==='ArrowDown')target=Math.min(target+step,maxScroll);
+    if(e.key==='ArrowUp')target=Math.max(target-step,0);
+    if(e.key==='PageDown')target=Math.min(target+window.innerHeight*0.85,maxScroll);
+    if(e.key==='PageUp')target=Math.max(target-window.innerHeight*0.85,0);
+    if(e.key==='Home'){target=0;}
+    if(e.key==='End'){target=maxScroll;}
+  }
+  function enable(){
+    if(active)return;
+    active=true;
+    // Set body height so scrollbar appears correctly
+    document.body.style.overflow='hidden';
+    document.getElementById('site').style.position='fixed';
+    document.getElementById('site').style.top='0';
+    document.getElementById('site').style.left='0';
+    document.getElementById('site').style.width='100%';
+    window.addEventListener('wheel',onWheel,{passive:false});
+    window.addEventListener('keydown',onKey);
+    // Sync anchor links
+    document.querySelectorAll('a[href^="#"]').forEach(a=>{
+      a.addEventListener('click',e=>{
+        const id=a.getAttribute('href').slice(1);
+        const el=document.getElementById(id);
+        if(!el)return;
+        e.preventDefault();
+        target=el.offsetTop;
+      });
+    });
+    rafId=requestAnimationFrame(tick);
+  }
+  // Enable after enter button clicked — not during loader
+  const enterBtn=document.getElementById('enter-btn');
+  const skipBtn=document.getElementById('skip-btn');
+  if(enterBtn)enterBtn.addEventListener('click',()=>setTimeout(enable,900));
+  if(skipBtn)skipBtn.addEventListener('click',()=>setTimeout(enable,900));
+  // Also handle case overlay — disable scroll transform while overlay open
+  document.addEventListener('keydown',e=>{
+    if(e.key==='Escape'){}// handled elsewhere
+  });
+  // Patch openCase/closeCase to suspend smooth scroll
+  const _origOpen=window.openCase;
+  window.openCase=function(idx){
+    if(active){document.getElementById('site').style.transform='translateY(0)';}
+    if(_origOpen)_origOpen(idx);
+  };
+})();
+// ── END SMOOTH SCROLL ─────────────────────────────────────────────────────────
 </script>
 </body>
 </html>
