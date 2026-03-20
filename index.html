@@ -1080,78 +1080,76 @@ document.querySelectorAll('.mob-proj-card').forEach(el=>{el.addEventListener('to
 // ── 4. SMOOTH INERTIA SCROLL ─────────────────────────────────────────────────
 (function(){
   if(navigator.maxTouchPoints>1||window.innerWidth<768)return;
-  // Only activate after site is entered — loader uses native scroll
-  let active=false;
-  let current=0,target=0,rafId=null;
-  const LERP=0.092;
+
+  let active=false,current=0,target=0,rafId=null;
+  const LERP=0.09;
   function lerp(a,b,t){return a+(b-a)*t;}
-  function tick(){
-    rafId=requestAnimationFrame(tick);
-    current=lerp(current,target,LERP);
-    if(Math.abs(current-target)<0.08)current=target;
-    document.documentElement.style.setProperty('--scroll-y',current+'px');
-    // Apply transform to site content wrapper only
-    const site=document.getElementById('site');
-    if(site)site.style.transform=`translateY(${-current}px)`;
-    // Keep fixed elements (nav, cursor, music btn, skip btn, overlays)
-    // unaffected — they use position:fixed so they're immune
-  }
-  function onWheel(e){
-    if(!active)return;
-    e.preventDefault();
-    target+=e.deltaY*0.8;
-    const maxScroll=document.body.scrollHeight-window.innerHeight;
-    target=Math.max(0,Math.min(target,maxScroll));
-  }
-  function onKey(e){
-    if(!active)return;
-    const step=80;
-    const maxScroll=document.body.scrollHeight-window.innerHeight;
-    if(e.key==='ArrowDown')target=Math.min(target+step,maxScroll);
-    if(e.key==='ArrowUp')target=Math.max(target-step,0);
-    if(e.key==='PageDown')target=Math.min(target+window.innerHeight*0.85,maxScroll);
-    if(e.key==='PageUp')target=Math.max(target-window.innerHeight*0.85,0);
-    if(e.key==='Home'){target=0;}
-    if(e.key==='End'){target=maxScroll;}
-  }
+
+  // Create a fixed viewport + scrollable content wrapper
+  const wrapper=document.createElement('div');
+  wrapper.id='smooth-wrapper';
+  wrapper.style.cssText='position:fixed;top:0;left:0;width:100%;will-change:transform;';
+
   function enable(){
     if(active)return;
     active=true;
-    // Set body height so scrollbar appears correctly
-    document.body.style.overflow='hidden';
-    document.getElementById('site').style.position='fixed';
-    document.getElementById('site').style.top='0';
-    document.getElementById('site').style.left='0';
-    document.getElementById('site').style.width='100%';
-    window.addEventListener('wheel',onWheel,{passive:false});
-    window.addEventListener('keydown',onKey);
-    // Sync anchor links
+
+    // Pull fixed elements OUT of wrapper so position:fixed still works
+    const fixedIds=['cur','cur-r','node-label','zoom-ui','skip-btn','music-btn','case-overlay'];
+    const fixedEls=fixedIds.map(id=>document.getElementById(id)).filter(Boolean);
+    // Temporarily detach them
+    fixedEls.forEach(el=>el.remove());
+
+    // Move all remaining body children into wrapper
+    while(document.body.firstChild){
+      wrapper.appendChild(document.body.firstChild);
+    }
+    document.body.appendChild(wrapper);
+
+    // Re-attach fixed elements directly to body — outside wrapper
+    fixedEls.forEach(el=>document.body.appendChild(el));
+
+    // Set body height to match content so browser scrollbar works
+    function syncHeight(){
+      document.body.style.height=wrapper.scrollHeight+'px';
+    }
+    syncHeight();
+    new ResizeObserver(syncHeight).observe(wrapper);
+
+    // Use native window scroll as the target
+    window.addEventListener('scroll',()=>{
+      target=window.scrollY;
+    },{passive:true});
+
+    // Anchor links
     document.querySelectorAll('a[href^="#"]').forEach(a=>{
       a.addEventListener('click',e=>{
         const id=a.getAttribute('href').slice(1);
         const el=document.getElementById(id);
         if(!el)return;
         e.preventDefault();
-        target=el.offsetTop;
+        // Find el position inside wrapper
+        const rect=el.getBoundingClientRect();
+        const scrollTo=window.scrollY+rect.top;
+        window.scrollTo({top:scrollTo,behavior:'auto'});
+        target=scrollTo;
       });
     });
+
+    function tick(){
+      rafId=requestAnimationFrame(tick);
+      current=lerp(current,target,LERP);
+      if(Math.abs(current-target)<0.5)current=target;
+      wrapper.style.transform=`translateY(${-current}px)`;
+    }
     rafId=requestAnimationFrame(tick);
   }
-  // Enable after enter button clicked — not during loader
+
+  // Enable only after enter/skip — not during loader
   const enterBtn=document.getElementById('enter-btn');
   const skipBtn=document.getElementById('skip-btn');
-  if(enterBtn)enterBtn.addEventListener('click',()=>setTimeout(enable,900));
-  if(skipBtn)skipBtn.addEventListener('click',()=>setTimeout(enable,900));
-  // Also handle case overlay — disable scroll transform while overlay open
-  document.addEventListener('keydown',e=>{
-    if(e.key==='Escape'){}// handled elsewhere
-  });
-  // Patch openCase/closeCase to suspend smooth scroll
-  const _origOpen=window.openCase;
-  window.openCase=function(idx){
-    if(active){document.getElementById('site').style.transform='translateY(0)';}
-    if(_origOpen)_origOpen(idx);
-  };
+  if(enterBtn)enterBtn.addEventListener('click',()=>setTimeout(enable,950));
+  if(skipBtn)skipBtn.addEventListener('click',()=>setTimeout(enable,950));
 })();
 // ── END SMOOTH SCROLL ─────────────────────────────────────────────────────────
 </script>
